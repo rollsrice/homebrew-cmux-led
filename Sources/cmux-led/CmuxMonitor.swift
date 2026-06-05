@@ -13,12 +13,28 @@ final class CmuxMonitor: ObservableObject {
     @Published var panels: [PanelState] = []
     @Published var status: String = "starting"
     @Published var connected: Bool = false
+    @Published var mode: LEDMode = LEDMode.load() {
+        didSet {
+            guard oldValue != mode else { return }
+            mode.save()
+            let newMode = mode
+            queue.async { [weak self] in
+                self?.activeMode = newMode
+                self?.refreshSnapshot()
+            }
+        }
+    }
 
     private let queue = DispatchQueue(label: "cmux-led.cmux-monitor")
     private var eventsProc: Process?
     private var snapshotTimer: DispatchSourceTimer?
     private var currentWorkspaceRef: String = "workspace:1"
-    private var lastSurfaces: [Surface] = []
+    private var lastRows: [Surface] = []
+    // Workspace refs with a busy surface (workspace mode only). Owned by `queue`.
+    private var busyRefs: Set<String> = []
+    // Mirror of `mode` owned by `queue`; read on the background queue to avoid
+    // racing the main-thread @Published `mode`.
+    private var activeMode: LEDMode = LEDMode.load()
 
     func start() {
         queue.async { [weak self] in
@@ -75,10 +91,17 @@ final class CmuxMonitor: ObservableObject {
             }
             return
         }
-        let wsId = CmuxClient.currentWorkspaceRef() ?? currentWorkspaceRef
-        currentWorkspaceRef = wsId
-        let surfaces = CmuxClient.listSurfaces(workspaceRef: wsId)
-        lastSurfaces = surfaces
+        let rows: [Surface]
+        switch activeMode {
+        case .surfaces:
+            let wsId = CmuxClient.currentWorkspaceRef() ?? currentWorkspaceRef
+            currentWorkspaceRef = wsId
+            rows = CmuxClient.listSurfaces(workspaceRef: wsId)
+        case .workspaces:
+            rows = CmuxClient.listWorkspaces()
+            busyRefs = CmuxClient.busyWorkspaceRefs()
+        }
+        lastRows = rows
         publishPanels()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -87,12 +110,16 @@ final class CmuxMonitor: ObservableObject {
     }
 
     private func publishPanels() {
-        let states = lastSurfaces.enumerated().map { (i, s) -> PanelState in
-            PanelState(
+        let usingWorkspaces = activeMode == .workspaces
+        let states = lastRows.enumerated().map { (i, s) -> PanelState in
+            // Workspace mode: busy comes from the surfaces (named workspaces don't
+            // carry the spinner in their own title). Surface mode: read the title.
+            let busy = usingWorkspaces ? busyRefs.contains(s.ref) : CmuxClient.isSpinnerBusy(s.title)
+            return PanelState(
                 id: s.ref,
                 index: i,
                 title: s.title,
-                isBusy: titleSpinnerBusy(s.title),
+                isBusy: busy,
                 isFocused: s.selected
             )
         }
@@ -102,16 +129,17 @@ final class CmuxMonitor: ObservableObject {
         }
     }
 
-    private func titleSpinnerBusy(_ title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.unicodeScalars.first else { return false }
-        return (0x2800...0x28FF).contains(first.value)
-    }
-
-    func selectSurface(index: Int) {
-        guard index >= 0, index < lastSurfaces.count else { return }
-        let ref = lastSurfaces[index].ref
-        let ws = currentWorkspaceRef
-        CmuxClient.focusSurface(workspaceRef: ws, surfaceRef: ref)
+    func select(index: Int) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard index >= 0, index < self.lastRows.count else { return }
+            let ref = self.lastRows[index].ref
+            switch self.activeMode {
+            case .surfaces:
+                CmuxClient.focusSurface(workspaceRef: self.currentWorkspaceRef, surfaceRef: ref)
+            case .workspaces:
+                CmuxClient.selectWorkspace(ref: ref)
+            }
+        }
     }
 }

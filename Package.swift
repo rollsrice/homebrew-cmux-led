@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "cmux-led",
             path: "Sources/cmux-led"
+        ),
+        .testTarget(
+            name: "cmux-ledTests",
+            dependencies: ["cmux-led"],
+            path: "Tests/cmux-ledTests"
         )
     ]
 )

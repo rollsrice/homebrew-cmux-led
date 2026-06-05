@@ -12,12 +12,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let state = WindowState()
     private var cancellables = Set<AnyCancellable>()
     private var statusItem: NSStatusItem?
+    private var surfacesMenuItem: NSMenuItem?
+    private var workspacesMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let content = ContentView(
             monitor: monitor,
             alwaysOnTop: stateBinding(),
-            onSelect: { [weak self] idx in self?.monitor.selectSurface(index: idx) }
+            onSelect: { [weak self] idx in self?.monitor.select(index: idx) }
         ).environmentObject(state)
 
         window = NSWindow(
@@ -49,27 +51,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .map { $0.count }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in self?.resizeWindow(forTabCount: count) }
+            .sink { [weak self] _ in self?.relayout() }
             .store(in: &cancellables)
 
-        resizeWindow(forTabCount: 0)
+        monitor.$mode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshModeMenu()
+                self?.relayout()
+            }
+            .store(in: &cancellables)
+
+        relayout()
     }
 
-    private func resizeWindow(forTabCount count: Int) {
-        // Layout: N LEDs (22pt each, 8pt gaps) + trailing room for one extra LED.
-        // The pattern emoji (only shown when busy/mixed) shares the trailing room.
-        // Padding: 12pt inner each side + 8pt outer shadow gutter each side = 40pt.
-        let ledSlot: CGFloat = 30   // 22 + 8 spacing
-        let trailingEmpty: CGFloat = 30 // room for exactly one extra LED
+    private func relayout() {
+        let count = monitor.panels.count
+        let axis: Axis = monitor.mode == .workspaces ? .vertical : .horizontal
+        resizeWindow(forCount: count, axis: axis)
+    }
+
+    private func resizeWindow(forCount count: Int, axis: Axis) {
+        // Stack axis: N LED slots (22 + 8 spacing) + one trailing empty LED slot + padding.
+        // Cross axis: single LED column/row thickness.
+        let ledSlot: CGFloat = 30
+        let trailingEmpty: CGFloat = 30
         let padding: CGFloat = 40
+        let stackExtent = count == 0 ? 200 : CGFloat(count) * ledSlot - 8 + trailingEmpty + padding
+
         let width: CGFloat
+        let height: CGFloat
         if count == 0 {
-            width = 200 // status text needs a stable minimum
+            // Empty/status text always shows as a small horizontal pill.
+            width = 200
+            height = 56
+        } else if axis == .vertical {
+            width = 62           // one LED + horizontal padding
+            height = stackExtent
         } else {
-            width = CGFloat(count) * ledSlot - 8 + trailingEmpty + padding
+            width = stackExtent
+            height = 56
         }
-        let height: CGFloat = 56
+
         let frame = window.frame
+        // Keep the top-left anchored: top edge fixed, grow down; left edge fixed.
         let newOrigin = NSPoint(x: frame.origin.x, y: frame.origin.y + (frame.height - height))
         let newFrame = NSRect(origin: newOrigin, size: NSSize(width: width, height: height))
         NSAnimationContext.runAnimationGroup { ctx in
@@ -98,6 +123,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pinItem.target = self
         pinItem.state = state.alwaysOnTop ? .on : .off
         menu.addItem(pinItem)
+        menu.addItem(.separator())
+        let surfacesItem = NSMenuItem(title: "LEDs: Surfaces", action: #selector(setSurfacesMode), keyEquivalent: "")
+        surfacesItem.target = self
+        menu.addItem(surfacesItem)
+        let workspacesItem = NSMenuItem(title: "LEDs: Workspaces", action: #selector(setWorkspacesMode), keyEquivalent: "")
+        workspacesItem.target = self
+        menu.addItem(workspacesItem)
+        self.surfacesMenuItem = surfacesItem
+        self.workspacesMenuItem = workspacesItem
+        refreshModeMenu()
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Show window", action: #selector(showWindow), keyEquivalent: ""))
         menu.items.last?.target = self
         menu.addItem(.separator())
@@ -111,6 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePin(_ sender: NSMenuItem) {
         state.alwaysOnTop.toggle()
+    }
+
+    @objc private func setSurfacesMode() { monitor.mode = .surfaces }
+    @objc private func setWorkspacesMode() { monitor.mode = .workspaces }
+
+    private func refreshModeMenu() {
+        surfacesMenuItem?.state = monitor.mode == .surfaces ? .on : .off
+        workspacesMenuItem?.state = monitor.mode == .workspaces ? .on : .off
     }
 
     @objc private func showWindow() {
