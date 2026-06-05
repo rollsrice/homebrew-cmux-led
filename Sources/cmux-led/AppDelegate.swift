@@ -56,14 +56,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resizeWindow(forTabCount count: Int) {
-        // Layout: N LEDs (22pt each) + emoji slot (40pt) + trailing empty slot (30pt) + 8pt gaps.
+        // Layout: N LEDs (22pt each, 8pt gaps) + trailing room for one extra LED.
+        // The pattern emoji (only shown when busy/mixed) shares the trailing room.
         // Padding: 12pt inner each side + 8pt outer shadow gutter each side = 40pt.
         let ledSlot: CGFloat = 30   // 22 + 8 spacing
-        let emojiSlot: CGFloat = 48 // 40 + 8 spacing
-        let trailingEmpty: CGFloat = 30
+        let trailingEmpty: CGFloat = 30 // room for exactly one extra LED
         let padding: CGFloat = 40
-        let computed = CGFloat(count) * ledSlot - 8 + emojiSlot + trailingEmpty + padding
-        let width: CGFloat = max(200, computed)
+        let width: CGFloat
+        if count == 0 {
+            width = 200 // status text needs a stable minimum
+        } else {
+            width = CGFloat(count) * ledSlot - 8 + trailingEmpty + padding
+        }
         let height: CGFloat = 56
         let frame = window.frame
         let newOrigin = NSPoint(x: frame.origin.x, y: frame.origin.y + (frame.height - height))
