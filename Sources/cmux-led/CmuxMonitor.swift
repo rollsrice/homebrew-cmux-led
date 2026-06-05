@@ -14,7 +14,7 @@ final class CmuxMonitor: ObservableObject {
     @Published var status: String = "starting"
     @Published var connected: Bool = false
 
-    private let queue = DispatchQueue(label: "claude-led.cmux-monitor")
+    private let queue = DispatchQueue(label: "cmux-led.cmux-monitor")
     private var eventsProc: Process?
     private var snapshotTimer: DispatchSourceTimer?
     private var currentWorkspaceRef: String = "workspace:1"
