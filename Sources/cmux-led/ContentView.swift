@@ -25,26 +25,35 @@ struct ContentView: View {
     var onSelect: (Int) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        Group {
             if monitor.panels.isEmpty {
-                Text(monitor.status)
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 6)
-            } else {
-                ForEach(monitor.panels) { p in
-                    LEDDot(
-                        isBusy: p.isBusy,
-                        isFocused: p.isFocused,
-                        title: p.title,
-                        index: p.index
-                    ) {
-                        onSelect(p.index)
-                    }
+                HStack(spacing: 8) {
+                    Text(monitor.status)
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                        .padding(.horizontal, 6)
+                    Spacer(minLength: 0)
                 }
-                PatternEmoji(pattern: BarPattern.from(monitor.panels))
+            } else if monitor.mode == .workspaces {
+                VStack(spacing: 8) {
+                    ForEach(monitor.panels) { p in
+                        LEDDot(isBusy: p.isBusy, isFocused: p.isFocused, title: p.title, index: p.index) {
+                            onSelect(p.index)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(monitor.panels) { p in
+                        LEDDot(isBusy: p.isBusy, isFocused: p.isFocused, title: p.title, index: p.index) {
+                            onSelect(p.index)
+                        }
+                    }
+                    PatternEmoji(pattern: BarPattern.from(monitor.panels))
+                    Spacer(minLength: 0)
+                }
             }
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
