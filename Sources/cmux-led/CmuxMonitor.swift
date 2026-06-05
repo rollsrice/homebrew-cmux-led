@@ -30,6 +30,8 @@ final class CmuxMonitor: ObservableObject {
     private var snapshotTimer: DispatchSourceTimer?
     private var currentWorkspaceRef: String = "workspace:1"
     private var lastRows: [Surface] = []
+    // Workspace refs with a busy surface (workspace mode only). Owned by `queue`.
+    private var busyRefs: Set<String> = []
     // Mirror of `mode` owned by `queue`; read on the background queue to avoid
     // racing the main-thread @Published `mode`.
     private var activeMode: LEDMode = LEDMode.load()
@@ -97,6 +99,7 @@ final class CmuxMonitor: ObservableObject {
             rows = CmuxClient.listSurfaces(workspaceRef: wsId)
         case .workspaces:
             rows = CmuxClient.listWorkspaces()
+            busyRefs = CmuxClient.busyWorkspaceRefs()
         }
         lastRows = rows
         publishPanels()
@@ -107,12 +110,16 @@ final class CmuxMonitor: ObservableObject {
     }
 
     private func publishPanels() {
+        let usingWorkspaces = activeMode == .workspaces
         let states = lastRows.enumerated().map { (i, s) -> PanelState in
-            PanelState(
+            // Workspace mode: busy comes from the surfaces (named workspaces don't
+            // carry the spinner in their own title). Surface mode: read the title.
+            let busy = usingWorkspaces ? busyRefs.contains(s.ref) : CmuxClient.isSpinnerBusy(s.title)
+            return PanelState(
                 id: s.ref,
                 index: i,
                 title: s.title,
-                isBusy: titleSpinnerBusy(s.title),
+                isBusy: busy,
                 isFocused: s.selected
             )
         }
@@ -120,12 +127,6 @@ final class CmuxMonitor: ObservableObject {
             guard let self else { return }
             if self.panels != states { self.panels = states }
         }
-    }
-
-    private func titleSpinnerBusy(_ title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.unicodeScalars.first else { return false }
-        return (0x2800...0x28FF).contains(first.value)
     }
 
     func select(index: Int) {

@@ -51,4 +51,43 @@ final class CmuxClientTests: XCTestCase {
         XCTAssertEqual(rows[0].ref, "workspace:7")
         XCTAssertEqual(rows[0].title, "")
     }
+
+    func testIsSpinnerBusyDetectsBrailleOnly() {
+        XCTAssertTrue(CmuxClient.isSpinnerBusy("⠂ Rename project"))
+        XCTAssertTrue(CmuxClient.isSpinnerBusy("⠇ working"))
+        // ✳ (U+2733) is a sticky task label, NOT a live spinner.
+        XCTAssertFalse(CmuxClient.isSpinnerBusy("✳ Understand todo"))
+        XCTAssertFalse(CmuxClient.isSpinnerBusy("helper"))
+        XCTAssertFalse(CmuxClient.isSpinnerBusy(""))
+    }
+
+    // A workspace is busy when ANY of its surfaces shows a braille spinner.
+    // Named workspaces keep their name as the workspace title (no glyph), so the
+    // busy state must come from the surfaces, not the workspace title.
+    func testParsesBusyWorkspaceRefsFromTree() {
+        let tree = """
+        window window:1 [current] ◀ active
+        ├── workspace workspace:11 "helper"
+        │   └── pane pane:11 [focused]
+        │       └── surface surface:20 [terminal] "✳ Prune finished branches" [selected]
+        ├── workspace workspace:17 "shika"
+        │   └── pane pane:22 [focused]
+        │       └── surface surface:34 [terminal] "⠂ Evaluate alternatives to Shika" [selected]
+        ├── workspace workspace:24 "claude-wrapped"
+        │   ├── pane pane:30
+        │   │   └── surface surface:48 [terminal] "✳ Evaluate safety" [selected]
+        │   └── pane pane:37 [focused]
+        │       └── surface surface:57 [filepreview] "wrapped.py"
+        ├── workspace workspace:14 "⠂ Rename project to cmux-led"
+        │   └── pane pane:14 [focused]
+        │       └── surface surface:25 [terminal] "⠂ Rename project to cmux-led" [selected] ◀ here
+        └── workspace workspace:12 "language-switch" [selected] ◀ active
+            └── pane pane:12 [focused] ◀ active
+                └── surface surface:22 [terminal] "~/o/.w/language-switch" [selected] ◀ active
+        """
+        let busy = CmuxClient.parseBusyWorkspaceRefs(tree)
+        // shika: named workspace, plain title, but braille surface → busy.
+        // workspace:14: unnamed, braille title + surface → busy.
+        XCTAssertEqual(busy, ["workspace:17", "workspace:14"])
+    }
 }

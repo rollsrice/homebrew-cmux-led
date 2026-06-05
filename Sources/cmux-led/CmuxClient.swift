@@ -79,6 +79,50 @@ enum CmuxClient {
         return parseRefLines(r.out, prefix: "workspace:")
     }
 
+    /// A title is "busy" when it starts with a braille spinner glyph (U+2800–U+28FF).
+    /// The `✳` (U+2733) prefix is a sticky task label left after a run, not a live spinner.
+    static func isSpinnerBusy(_ title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.unicodeScalars.first else { return false }
+        return (0x2800...0x28FF).contains(first.value)
+    }
+
+    /// Refs of workspaces that have at least one busy surface.
+    ///
+    /// Named workspaces keep their user-given name as the workspace title (no
+    /// spinner glyph), so a workspace's busy state can't be read from its own
+    /// title — it must come from the surfaces nested under it in `tree --all`.
+    static func busyWorkspaceRefs() -> Set<String> {
+        let r = runText(["tree", "--all"], timeout: 1.5)
+        guard r.code == 0 else { return [] }
+        return parseBusyWorkspaceRefs(r.out)
+    }
+
+    static func parseBusyWorkspaceRefs(_ tree: String) -> Set<String> {
+        let drawing: Set<Character> = ["│", "├", "└", "─", " ", "\t"]
+        var busy: Set<String> = []
+        var current: String?
+        for raw in tree.split(separator: "\n", omittingEmptySubsequences: true) {
+            let node = String(String(raw).drop(while: { drawing.contains($0) }))
+            if node.hasPrefix("workspace ") {
+                let toks = node.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+                current = toks.count >= 2 ? String(toks[1]) : nil
+                if let ws = current, let title = quotedTitle(node), isSpinnerBusy(title) {
+                    busy.insert(ws)
+                }
+            } else if node.hasPrefix("surface "), let ws = current,
+                      let title = quotedTitle(node), isSpinnerBusy(title) {
+                busy.insert(ws)
+            }
+        }
+        return busy
+    }
+
+    private static func quotedTitle(_ s: String) -> String? {
+        guard let f = s.firstIndex(of: "\""), let l = s.lastIndex(of: "\""), f < l else { return nil }
+        return String(s[s.index(after: f)..<l])
+    }
+
     static func selectWorkspace(ref: String) {
         DispatchQueue.global().async {
             _ = runText(["select-workspace", "--workspace", ref], timeout: 1.0)
