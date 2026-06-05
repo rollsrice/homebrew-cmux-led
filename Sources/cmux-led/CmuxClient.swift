@@ -70,10 +70,10 @@ enum CmuxClient {
     static func listSurfaces(workspaceRef: String) -> [Surface] {
         let r = runText(["list-pane-surfaces", "--workspace", workspaceRef], timeout: 1.5)
         guard r.code == 0 else { return [] }
-        return parseSurfaceLines(r.out)
+        return parseRefLines(r.out, prefix: "surface:")
     }
 
-    static func parseSurfaceLines(_ text: String) -> [Surface] {
+    static func parseRefLines(_ text: String, prefix: String) -> [Surface] {
         var out: [Surface] = []
         for raw in text.split(separator: "\n", omittingEmptySubsequences: true) {
             let line = String(raw)
@@ -84,13 +84,13 @@ enum CmuxClient {
             }
             let trimmed = rest.trimmingCharacters(in: .whitespaces)
             guard let spaceIdx = trimmed.firstIndex(of: " ") else {
-                if trimmed.hasPrefix("surface:") {
+                if trimmed.hasPrefix(prefix) {
                     out.append(Surface(ref: trimmed, title: "", selected: selected))
                 }
                 continue
             }
             let ref = String(trimmed[..<spaceIdx])
-            guard ref.hasPrefix("surface:") else { continue }
+            guard ref.hasPrefix(prefix) else { continue }
             var title = String(trimmed[trimmed.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespaces)
             if title.hasSuffix("[selected]") {
                 title = String(title.dropLast("[selected]".count)).trimmingCharacters(in: .whitespaces)
