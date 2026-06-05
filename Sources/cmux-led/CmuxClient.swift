@@ -73,6 +73,24 @@ enum CmuxClient {
         return parseRefLines(r.out, prefix: "surface:")
     }
 
+    static func listWorkspaces() -> [Surface] {
+        let r = runText(["workspace", "list"], timeout: 1.5)
+        guard r.code == 0 else { return [] }
+        return parseRefLines(r.out, prefix: "workspace:")
+    }
+
+    static func selectWorkspace(ref: String) {
+        DispatchQueue.global().async {
+            _ = runText(["select-workspace", "--workspace", ref], timeout: 1.0)
+            DispatchQueue.main.async {
+                NSRunningApplication
+                    .runningApplications(withBundleIdentifier: "com.cmuxterm.app")
+                    .first?
+                    .activate(options: [.activateAllWindows])
+            }
+        }
+    }
+
     static func parseRefLines(_ text: String, prefix: String) -> [Surface] {
         var out: [Surface] = []
         for raw in text.split(separator: "\n", omittingEmptySubsequences: true) {
