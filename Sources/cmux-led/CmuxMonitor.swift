@@ -13,12 +13,19 @@ final class CmuxMonitor: ObservableObject {
     @Published var panels: [PanelState] = []
     @Published var status: String = "starting"
     @Published var connected: Bool = false
+    @Published var mode: LEDMode = LEDMode.load() {
+        didSet {
+            guard oldValue != mode else { return }
+            mode.save()
+            queue.async { [weak self] in self?.refreshSnapshot() }
+        }
+    }
 
     private let queue = DispatchQueue(label: "cmux-led.cmux-monitor")
     private var eventsProc: Process?
     private var snapshotTimer: DispatchSourceTimer?
     private var currentWorkspaceRef: String = "workspace:1"
-    private var lastSurfaces: [Surface] = []
+    private var lastRows: [Surface] = []
 
     func start() {
         queue.async { [weak self] in
@@ -75,10 +82,16 @@ final class CmuxMonitor: ObservableObject {
             }
             return
         }
-        let wsId = CmuxClient.currentWorkspaceRef() ?? currentWorkspaceRef
-        currentWorkspaceRef = wsId
-        let surfaces = CmuxClient.listSurfaces(workspaceRef: wsId)
-        lastSurfaces = surfaces
+        let rows: [Surface]
+        switch mode {
+        case .surfaces:
+            let wsId = CmuxClient.currentWorkspaceRef() ?? currentWorkspaceRef
+            currentWorkspaceRef = wsId
+            rows = CmuxClient.listSurfaces(workspaceRef: wsId)
+        case .workspaces:
+            rows = CmuxClient.listWorkspaces()
+        }
+        lastRows = rows
         publishPanels()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -87,7 +100,7 @@ final class CmuxMonitor: ObservableObject {
     }
 
     private func publishPanels() {
-        let states = lastSurfaces.enumerated().map { (i, s) -> PanelState in
+        let states = lastRows.enumerated().map { (i, s) -> PanelState in
             PanelState(
                 id: s.ref,
                 index: i,
@@ -108,10 +121,14 @@ final class CmuxMonitor: ObservableObject {
         return (0x2800...0x28FF).contains(first.value)
     }
 
-    func selectSurface(index: Int) {
-        guard index >= 0, index < lastSurfaces.count else { return }
-        let ref = lastSurfaces[index].ref
-        let ws = currentWorkspaceRef
-        CmuxClient.focusSurface(workspaceRef: ws, surfaceRef: ref)
+    func select(index: Int) {
+        guard index >= 0, index < lastRows.count else { return }
+        let ref = lastRows[index].ref
+        switch mode {
+        case .surfaces:
+            CmuxClient.focusSurface(workspaceRef: currentWorkspaceRef, surfaceRef: ref)
+        case .workspaces:
+            CmuxClient.selectWorkspace(ref: ref)
+        }
     }
 }
