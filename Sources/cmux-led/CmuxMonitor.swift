@@ -17,7 +17,11 @@ final class CmuxMonitor: ObservableObject {
         didSet {
             guard oldValue != mode else { return }
             mode.save()
-            queue.async { [weak self] in self?.refreshSnapshot() }
+            let newMode = mode
+            queue.async { [weak self] in
+                self?.activeMode = newMode
+                self?.refreshSnapshot()
+            }
         }
     }
 
@@ -26,6 +30,9 @@ final class CmuxMonitor: ObservableObject {
     private var snapshotTimer: DispatchSourceTimer?
     private var currentWorkspaceRef: String = "workspace:1"
     private var lastRows: [Surface] = []
+    // Mirror of `mode` owned by `queue`; read on the background queue to avoid
+    // racing the main-thread @Published `mode`.
+    private var activeMode: LEDMode = LEDMode.load()
 
     func start() {
         queue.async { [weak self] in
@@ -83,7 +90,7 @@ final class CmuxMonitor: ObservableObject {
             return
         }
         let rows: [Surface]
-        switch mode {
+        switch activeMode {
         case .surfaces:
             let wsId = CmuxClient.currentWorkspaceRef() ?? currentWorkspaceRef
             currentWorkspaceRef = wsId
@@ -122,13 +129,16 @@ final class CmuxMonitor: ObservableObject {
     }
 
     func select(index: Int) {
-        guard index >= 0, index < lastRows.count else { return }
-        let ref = lastRows[index].ref
-        switch mode {
-        case .surfaces:
-            CmuxClient.focusSurface(workspaceRef: currentWorkspaceRef, surfaceRef: ref)
-        case .workspaces:
-            CmuxClient.selectWorkspace(ref: ref)
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard index >= 0, index < self.lastRows.count else { return }
+            let ref = self.lastRows[index].ref
+            switch self.activeMode {
+            case .surfaces:
+                CmuxClient.focusSurface(workspaceRef: self.currentWorkspaceRef, surfaceRef: ref)
+            case .workspaces:
+                CmuxClient.selectWorkspace(ref: ref)
+            }
         }
     }
 }
